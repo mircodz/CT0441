@@ -1,0 +1,3 @@
+[submodule "include/libdz"]
+	path = include/libdz
+	url = https://github.com/mircodezorzi/libdz.git
