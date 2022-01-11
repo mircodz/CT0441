@@ -196,17 +196,38 @@ hook_multiplayer_loop(void *ptr, long dt)
   static long last = 0;
   engine_t   *e    = ptr;
 
-  if (game_state_tick(gs_p1, dt)) {
-    tetris_client_setstate(client, gs_p1->field->data, gs_p1->mask->data, 0, 0, 0);
+  if (tetris_client_isready(client)) {
+    if (game_state_tick(gs_p1, dt)) {
+      tetris_client_setstate(client, gs_p1->field->data, gs_p1->mask->data, 0, 0, 0);
+    }
+
+    game_state_draw_everything(gs_p1, e);
+
+    getstate_t state;
+    tetris_client_getstate(client, &state);
+
+    game_state_from_data(gs_p2, state.field, NULL);
+    game_state_draw_dont_compute(gs_p2, e);
+  } else {
+    screen_draw_rect(e->screen,
+                     (rect_t){
+                         .x     = 10,
+                         .y     = 10,
+                         .w     = 28,
+                         .h     = 1,
+                         .color = color_white,
+                     });
+    screen_draw_text(e->screen,
+                     (rect_t){
+                         .x = 11,
+                         .y = 11,
+                         .w = 27,
+                         .h = 1,
+                     },
+                     "Waiting for other player...",
+                     sizeof("Waiting for other player..."),
+                     color_white);
   }
-
-  game_state_draw_everything(gs_p1, e);
-
-  getstate_t state;
-  tetris_client_getstate(client, &state);
-
-  game_state_from_data(gs_p2, state.field, NULL);
-  game_state_draw_dont_compute(gs_p2, e);
 }
 
 void
@@ -225,9 +246,17 @@ singleplayer_callback(void *_)
   state = Singleplayer;
 }
 
+int    argc;
+char **argv;
+
 void
 multiplayer_callback(void *_)
 {
+  client = client_new("127.0.0.1", 5000);
+
+  tetris_client_auth(client, argv[1], strlen(argv[1]));
+  tetris_client_join(client, argv[2], strlen(argv[2]));
+
   state = Multiplayer;
 }
 
@@ -244,8 +273,11 @@ menu(screen_t *s)
 }
 
 int
-main(int argc, char **argv)
+main(int argc_, char **argv_)
 {
+  argc = argc_;
+  argv = argv_;
+
   int i;
   int j;
 
@@ -282,12 +314,8 @@ main(int argc, char **argv)
 
   e = engine_new(hook_keyboard, hook_mouse, hook_loop);
 
-  gs_p1  = game_state_new();
-  gs_p2  = game_state_new();
-  client = client_new("127.0.0.1", 5000);
-
-  tetris_client_auth(client, argv[1], strlen(argv[1]));
-  tetris_client_join(client, argv[2], strlen(argv[2]));
+  gs_p1 = game_state_new();
+  gs_p2 = game_state_new();
 
   b_singleplayer = button_new(
       (rect_t){
@@ -335,7 +363,6 @@ main(int argc, char **argv)
   srand(time(NULL));
 
   game_state_step_pieces(gs_p1);
-  // place_piece(gs_p1->mask, gs_p1->active, gs_p1->at);
 
   sb = statusbar_new("diocane");
 

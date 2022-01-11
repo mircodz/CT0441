@@ -285,3 +285,18 @@ tetris_client_setstate(client_t *c, int *data_f, int *data_m, int h, int *ts, in
 
   return code == CODE_SETSTATE_SUCCESFULL;
 }
+
+bool
+tetris_client_isready(client_t *c)
+{
+  char buff[MAX];
+  int  status;
+
+  SEND_CMD(CMD_ISREADY);
+
+  bzero(buff, MAX);
+  read_until_crlf(c->sockfd, buff, MAX);
+  sscanf(buff, "%d", &status);
+
+  return status;
+}

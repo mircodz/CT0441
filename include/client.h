@@ -11,6 +11,7 @@
 #define CMD_LISTG    "LISTG\r\n"
 #define CMD_GETSTATE "GETSTATE\r\n"
 #define CMD_SETSTATE "SETSTATE"
+#define CMD_ISREADY  "ISREADY\r\n"
 
 #define CODE_AUTHENTICATION_SUCCESFULL 235
 #define CODE_JOIN_SUCCESFULL           236
@@ -153,5 +154,10 @@ void tetris_client_getstate(client_t *c, getstate_t *out);
   \param ts_len Length of tetramino queue.
   */
 bool tetris_client_setstate(client_t *c, int *data_f, int *data_m, int h, int *ts, int ts_len);
+
+/**
+  \brief Check if player is ready to start a multiplayer match.
+ */
+bool tetris_client_isready(client_t *c);
 
 #endif /* __CLIENT_H__ */

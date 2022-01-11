@@ -85,6 +85,20 @@ var (
 	users = make(map[string]*userConn, 0)
 )
 
+func handleClose(c *userConn) {
+	if c.room != "" {
+		if rooms[c.room].A == c {
+			rooms[c.room].A = nil
+		} else if rooms[c.room].B == c {
+			rooms[c.room].B = nil
+		}
+		if rooms[c.room].A == nil && rooms[c.room].B == nil {
+			delete(rooms, c.room)
+		}
+	}
+	delete(users, c.user)
+}
+
 // Authenticate player.
 func handleAUTH(c *userConn, args []string) (err error) {
 	if _, ok := users[args[0]]; ok {
@@ -186,18 +200,29 @@ func handleSETSTATE(c *userConn, args []string) (err error) {
 
 // Get field state for other player.
 func handleGETSTATE(c *userConn, args []string) (err error) {
-	if rooms[c.room].A == c {
-		str := fmt.Sprintf("%v", rooms[c.room].B.field)
-		bytes := []byte(str[1 : len(str)-1])
-		c.conn.Write(bytes)
-		c.conn.Write([]byte{'\r', '\n'})
-	} else if rooms[c.room].B == c {
-		str := fmt.Sprintf("%v", rooms[c.room].A.field)
-		bytes := []byte(str[1 : len(str)-1])
-		c.conn.Write(bytes)
-		c.conn.Write([]byte{'\r', '\n'})
-	} else {
+	if rooms[c.room] != nil {
+		if rooms[c.room].A == c {
+			str := fmt.Sprintf("%v", rooms[c.room].B.field)
+			bytes := []byte(str[1 : len(str)-1])
+			c.conn.Write(bytes)
+			c.conn.Write([]byte{'\r', '\n'})
+		} else if rooms[c.room].B == c {
+			str := fmt.Sprintf("%v", rooms[c.room].A.field)
+			bytes := []byte(str[1 : len(str)-1])
+			c.conn.Write(bytes)
+			c.conn.Write([]byte{'\r', '\n'})
+		}
 	}
+	return nil
+}
+
+func handleISREADY(c *userConn, args []string) (err error) {
+	if c.state == Playing {
+		c.conn.Write([]byte{'1'})
+	} else {
+		c.conn.Write([]byte{'0'})
+	}
+	c.conn.Write([]byte{'\r', '\n'})
 	return nil
 }
 
@@ -210,6 +235,7 @@ var (
 	cmdListG    = "LISTG"
 	cmdSetState = "SETSTATE"
 	cmdGetState = "GETSTATE"
+	cmdIsReady  = "ISREADY"
 )
 
 type cmdRequirements struct {
@@ -226,6 +252,7 @@ var allowedCmd = map[string]cmdRequirements{
 	cmdListG:    {argc: 0, states: []connState{Authenticated, Waiting, Playing}},
 	cmdSetState: {argc: ANY, states: []connState{Playing}},
 	cmdGetState: {argc: 0, states: []connState{Playing}},
+	cmdIsReady:  {argc: 0, states: []connState{Authenticated, Waiting, Playing}},
 }
 
 var handlers = map[string]handlerFunc{
@@ -235,6 +262,7 @@ var handlers = map[string]handlerFunc{
 	cmdListG:    handleLISTG,
 	cmdSetState: handleSETSTATE,
 	cmdGetState: handleGETSTATE,
+	cmdIsReady:  handleISREADY,
 }
 
 func handleConnection(conn net.Conn) {
@@ -305,6 +333,7 @@ LOOP:
 			return
 		}
 	}
+	handleClose(&c)
 }
 
 func main() {

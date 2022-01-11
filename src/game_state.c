@@ -31,6 +31,9 @@ game_state_new()
 
   gs->last_tick = 0;
 
+  gs->at.x = 4;
+  gs->at.y = 0;
+
   return gs;
 }
 
@@ -47,7 +50,7 @@ game_state_step_pieces(game_state *gs)
 {
   gs->active = tetramino_copy(gs->next[0]);
 
-  gs->at.x = 0;
+  gs->at.x = 4;
   gs->at.y = 0;
 
   for (int i = 0; i < NEXT_QUEUE_SIZE - 1; i++) {
@@ -85,7 +88,7 @@ game_state_try_swap(game_state *gs)
     gs->holding = gs->active;
     gs->active  = tmp;
   }
-  gs->at.x     = 0;
+  gs->at.x     = 4;
   gs->at.y     = 0;
   gs->has_held = true;
 
@@ -156,7 +159,7 @@ game_state_drop_piece(game_state *gs)
 {
   game_state_drop_tetramino(gs);
   game_state_step_pieces(gs);
-  gs->at.x = 0;
+  gs->at.x = 4;
   gs->at.y = 0;
 }
 
@@ -168,7 +171,7 @@ game_state_tick(game_state *gs, long dt)
     if (check_collision(gs->field, gs->active, TP(gs->at, 0, 1))) {
       place_piece(gs->field, gs->active, gs->at);
       game_state_step_pieces(gs);
-      gs->at.x = 0;
+      gs->at.x = 4;
       gs->at.y = 0;
     } else {
       gs->at.y++;
