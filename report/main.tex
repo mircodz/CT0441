@@ -12,7 +12,9 @@
 
 \section{Team Composition}
 
-The program has been written on by a single person: Mirco De Zorzi (mat. 891275).
+\begin{itemize}
+  \item Mirco De Zorzi (mat. 891275).
+\end{itemize}
 
 \section{Project Structure}
 
@@ -93,7 +95,11 @@ type room struct {
 
 \section{Unimplemented Features}
 
+Most of the issues listed below belong to a ever-growing list of TODOs of this project. Due to a series of time constraints (and lock of desire to do so) 
+
 \begin{itemize}
+  \item Cleanup project directories and source code.
+  \item Rewrite makefiles to completely automate the build process.
   \item Both client-side and server-side authentication and session handling is somewhat brittle. In case one of the clients times-out, there is no way to recover a game session;
   \item The UI library (\texttt{libdz}) is still in a \textit{work-in-progess} state. Most components require a close-to-complete rewrite, and the code has yet to be hardened, so security is not guaranteed. Some missing features from the library are:
   \begin{itemize}
@@ -102,11 +108,17 @@ type room struct {
     \item panels, textboxes, checkboxes...: layout automation for complex menus (refer to \href{https://github.com/mircodezorzi/sym}{\texttt{mircodezorzi/sym}} for an close implementation);
     \item better bounding-box handling for all widgets: allow for a widget to have a \texttt{parent}, altering it's origin point in relation to the parent's one.;
     \item pass \texttt{context\_t*} to all callback functions instead of the parent object;
-    \item ...
   \end{itemize}
-  \item Better field state handling. Currently it is possible to send arbitrary information to the server, effectively making it possible to set one own's field to an arbitrary state. This would lead to trivially simple cheats.
-  \item There are no options menu to change field size, key bindings or multiplayer settings.
+  \item Better field state handling. Currently it is possible to send arbitrary information to the server, effectively making it possible to set one own's field to an arbitrary state. This would make cheating trivially simple.
+  \item Add options menu to change field size, key bindings or multiplayer settings.
+  \item The networking code is really badly written. It does not follow the ANSI standard and doesn't try to optimize anything.
   \item Player Vs. AI is missing.
+  \item Thread safety in server is missing.
+  \item In multiplayer mode when a player clears 4 rows with a single drop, the opponent's field should fill with \texttt{n} rows of ghost tetraminos (with one of the colmns empty). This has not been implemented yet (due to time constraints), although doing so would be trivial.
+  \item A local/global scoreboard is missing.
+  \item The option to view a list of active players is missing (and therefore a lobby system similar to other online multiplayer games).
+  \item When, in multiplayer, a player dies, the oppont will be able to continue playing untill he loses. The losing opponent's field will be filled with red. \textbf{This is indeed a feature, and not a botch fix due to the lack of time to implement a real "game over" screen}.
+  \item Rewrite this entire report, as it is abysmally unorganized and confused.
 \end{itemize}
 
 \noindent Refer to the source and header files for more documentation related to unimplemented features.

@@ -1,3 +1,4 @@
+/** No way in hell I'll be able to convert this into ANSI... */
 #include "client.h"
 
 #include <arpa/inet.h>
@@ -13,6 +14,26 @@
 
 #include <dz/utf8.h>
 
+#define MAX 2048
+
+#define SEND_CMD(Cmd) write(c->sockfd, Cmd, sizeof(Cmd));
+#define SEND_SPACE()  write(c->sockfd, " ", 1);
+
+#define SEND_CMD_ARG_STR1(Cmd, Arg, Len)                                                                               \
+  do {                                                                                                                 \
+    char buff[256];                                                                                                    \
+    Arg[Len] = '\0';                                                                                                   \
+    int n    = snprintf(buff, 256, "%s %s\n", Cmd, Arg);                                                               \
+    write(c->sockfd, buff, n);                                                                                         \
+  } while (0);
+
+#define SEND_NUMBER(Num)                                                                                               \
+  do {                                                                                                                 \
+    char     buff[256];                                                                                                \
+    unsigned n = snprintf(buff, 256, "%d", Num);                                                                       \
+    write(c->sockfd, buff, n);                                                                                         \
+  } while (0);
+
 player_state_e
 chr_to_state(char c)
 {
@@ -23,8 +44,6 @@ chr_to_state(char c)
   case 'P': return Playing;
   }
 }
-
-#define MAX 2048
 
 /**
   \see https://stackoverflow.com/a/28558742/6585097
@@ -100,16 +119,6 @@ client_close(client_t *c)
   close(c->sockfd);
   free(c);
 }
-
-#define SEND_CMD(Cmd) write(c->sockfd, Cmd, sizeof(Cmd));
-
-#define SEND_CMD_ARG_STR1(Cmd, Arg, Len)                                                                               \
-  do {                                                                                                                 \
-    char buff[256];                                                                                                    \
-    Arg[Len] = '\0';                                                                                                   \
-    int n    = snprintf(buff, 256, "%s %s\n", Cmd, Arg);                                                               \
-    write(c->sockfd, buff, n);                                                                                         \
-  } while (0);
 
 bool
 tetris_client_auth(client_t *c, char *name, int len)
@@ -259,17 +268,79 @@ tetris_client_getstate(client_t *c, getstate_t *out)
   read_until_crlf(c->sockfd, buff, MAX);
 
   int r = 0;
+  int pos = 0;
+  int n;
+
+  fprintf(stderr, "%s", buff + r);
+  sscanf(buff + r, "%d%n", &out->holding, &pos);
+  r += pos;
+
+  fprintf(stderr, "%s", buff + r);
+  sscanf(buff + r, "%d%n", &n, &pos);
+  r += pos;
+
+  for (int i = 0; i < n; i++) {
+    fprintf(stderr, "%s", buff + r);
+    sscanf(buff + r, "%d%n", &out->tetraminos[i], &pos);
+    r += pos;
+  }
+
+  fprintf(stderr, "%s", buff + r);
+  sscanf(buff + r, "%d%n", &out->score, &pos);
+  r += pos;
+  fprintf(stderr, "%s", buff + r);
+  sscanf(buff + r, "%d%n", &out->cleared, &pos);
+  r += pos;
+  fprintf(stderr, "%s", buff + r);
+  sscanf(buff + r, "%d%n", &out->level, &pos);
+  r += pos;
+
   for (int i = 0; i < 150; i++) {
-    int pos;
+    fprintf(stderr, "%s", buff + r);
     sscanf(buff + r, "%d%n", &out->field[i], &pos);
     r += pos;
   }
 }
 
+static int
+get_tetramino_type(tetramino_t t)
+{
+  for (int i = 0; i < t.size * t.size; i++) {
+    if (t.data[i] != 0) {
+      return t.data[i];
+    }
+  }
+  return -1;
+}
+
 bool
-tetris_client_setstate(client_t *c, int *data_f, int *data_m, int h, int *ts, int ts_len)
+tetris_client_setstate(client_t    *c,
+                       int         *data_f,
+                       int         *data_m,
+                       tetramino_t  h,
+                       tetramino_t *ts,
+                       int          ts_len,
+                       int          score,
+                       int          cleared,
+                       int          level)
 {
   write(c->sockfd, "SETSTATE ", sizeof("SETSTATE "));
+
+  SEND_NUMBER(get_tetramino_type(h));
+  SEND_SPACE();
+  SEND_NUMBER(ts_len);
+  SEND_SPACE();
+  for (int i = 0; i < ts_len; i++) {
+    SEND_NUMBER(get_tetramino_type(ts[i]));
+    SEND_SPACE();
+  }
+  SEND_NUMBER(score);
+  SEND_SPACE();
+  SEND_NUMBER(cleared);
+  SEND_SPACE();
+  SEND_NUMBER(level);
+  SEND_SPACE();
+
   for (int i = 0; i < 150; i++) {
     char buff[16];
     int  n = snprintf(buff, 16, "%d ", data_f[i] | data_m[i]);
@@ -293,6 +364,21 @@ tetris_client_isready(client_t *c)
   int  status;
 
   SEND_CMD(CMD_ISREADY);
+
+  bzero(buff, MAX);
+  read_until_crlf(c->sockfd, buff, MAX);
+  sscanf(buff, "%d", &status);
+
+  return status;
+}
+
+bool 
+tetris_client_sendgameover(client_t *c) 
+{
+  char buff[MAX];
+  int  status;
+
+  SEND_CMD(CMD_GAMEOVER);
 
   bzero(buff, MAX);
   read_until_crlf(c->sockfd, buff, MAX);

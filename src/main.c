@@ -186,8 +186,35 @@ hook_loop_singleplayer(void *ptr, long dt)
   static long last = 0;
   engine_t   *e    = ptr;
 
-  game_state_tick(gs_p1, dt);
-  game_state_draw_everything(gs_p1, e);
+  if (gs_p1->game_over) {
+    /*
+    state = MainMenu;
+    free(gs_p1);
+    gs_p1 = game_state_new();
+    game_state_step_pieces(gs_p1);
+    */
+    screen_draw_rect(e->screen,
+                     (rect_t){
+                         .x     = 10,
+                         .y     = 10,
+                         .w     = 90,
+                         .h     = 1,
+                         .color = color_white,
+                     });
+    screen_draw_text(e->screen,
+                     (rect_t){
+                         .x = 11,
+                         .y = 11,
+                         .w = 84,
+                         .h = 1,
+                     },
+                     "Game Over (The developer was too lazy to implement this, so just press 'q' to exit).",
+                     sizeof("Game Over (The developer was too lazy to implement this, so just press 'q' to exit)."),
+                     color_white);
+  } else {
+    game_state_tick(gs_p1, dt);
+    game_state_draw_everything(gs_p1, e);
+  }
 }
 
 void
@@ -196,9 +223,37 @@ hook_multiplayer_loop(void *ptr, long dt)
   static long last = 0;
   engine_t   *e    = ptr;
 
-  if (tetris_client_isready(client)) {
+  if (gs_p1->game_over) {
+    /* This plus a whole lot more code should do the trick...
+    free(gs_p1);
+    gs_p1 = game_state_new();
+    game_state_step_pieces(gs_p1);
+    state = MainMenu;
+    */
+    tetris_client_sendgameover(client);
+
+    screen_draw_rect(e->screen,
+                     (rect_t){
+                         .x     = 10,
+                         .y     = 10,
+                         .w     = 90,
+                         .h     = 1,
+                         .color = color_white,
+                     });
+    screen_draw_text(e->screen,
+                     (rect_t){
+                         .x = 11,
+                         .y = 11,
+                         .w = 84,
+                         .h = 1,
+                     },
+                     "Game Over (The developer was too lazy to implement this, so just press 'q' to exit).",
+                     sizeof("Game Over (The developer was too lazy to implement this, so just press 'q' to exit)."),
+                     color_white);
+  } else if (tetris_client_isready(client)) {
     if (game_state_tick(gs_p1, dt)) {
-      tetris_client_setstate(client, gs_p1->field->data, gs_p1->mask->data, 0, 0, 0);
+      tetris_client_setstate(
+          client, gs_p1->field->data, gs_p1->mask->data, gs_p1->holding, gs_p1->next, NEXT_QUEUE_SIZE, gs_p1->score, gs_p1->total_cleared, gs_p1->level);
     }
 
     game_state_draw_everything(gs_p1, e);
@@ -206,8 +261,24 @@ hook_multiplayer_loop(void *ptr, long dt)
     getstate_t state;
     tetris_client_getstate(client, &state);
 
-    game_state_from_data(gs_p2, state.field, NULL);
+    /*fprintf(stderr, "%d %d %d\n", state.level, state.score, state.cleared);*/
+
+    gs_p2->holding = tetraminos[state.holding];
+
+    for (int i = 0; i < NEXT_QUEUE_SIZE; i++) {
+      gs_p2->next[i] = tetraminos[state.tetraminos[i] - 1];
+    }
+
+    gs_p2->level = state.level;
+    gs_p2->score = state.score;
+    gs_p2->total_cleared = state.cleared;
+
+    for (int i = 0; i < 150; i++) {
+      gs_p2->field->data[i] = state.field[i];
+    }
+
     game_state_draw_dont_compute(gs_p2, e);
+
   } else {
     screen_draw_rect(e->screen,
                      (rect_t){
@@ -252,12 +323,19 @@ char **argv;
 void
 multiplayer_callback(void *_)
 {
-  client = client_new("127.0.0.1", 5000);
+  if (argc >= 5) {
+    client = client_new(argv[1], atoi(argv[2]));
 
-  tetris_client_auth(client, argv[1], strlen(argv[1]));
-  tetris_client_join(client, argv[2], strlen(argv[2]));
+    tetris_client_auth(client, argv[3], strlen(argv[3]));
+    tetris_client_join(client, argv[4], strlen(argv[4]));
 
-  state = Multiplayer;
+    state = Multiplayer;
+  } else {
+    // TODO implement message boxes
+    u8_printf("Missing arguments.\n");
+    u8_printf("Usage: xtetris <ip> <port> <username> <room>\n");
+    exit(1);
+  }
 }
 
 void
@@ -364,7 +442,7 @@ main(int argc_, char **argv_)
 
   game_state_step_pieces(gs_p1);
 
-  sb = statusbar_new("diocane");
+  sb = statusbar_new("foobar");
 
   int ret = engine_loop(e);
   engine_free(e);

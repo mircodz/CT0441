@@ -1,3 +1,5 @@
+/** Well... I'd argue this is 90% ANSI, and 10% a fucking mess... */
+
 #include "game_state.h"
 
 #include <dz/utf8.h>
@@ -8,17 +10,19 @@
 
 #include "collision.h"
 #include "field.h"
+#include "client.h"
 #include "tetris.h"
 
 game_state *
 game_state_new()
 {
+  int         i;
   game_state *gs = malloc(sizeof(game_state));
 
   gs->field = field_new(10, 15);
   gs->mask  = field_new(10, 15);
 
-  for (int i = 0; i < NEXT_QUEUE_SIZE; i++) {
+  for (i = 0; i < NEXT_QUEUE_SIZE; i++) {
     gs->next[i] = new_random_tetramino();
   }
 
@@ -34,6 +38,8 @@ game_state_new()
   gs->at.x = 4;
   gs->at.y = 0;
 
+  gs->game_over = false;
+
   return gs;
 }
 
@@ -45,25 +51,36 @@ game_state_free(game_state *gs)
   free(gs);
 }
 
-void
+static bool
+game_state_isgameover(game_state *gs) 
+{
+  return !check_collision(gs->field, gs->active, gs->at);
+}
+
+bool
 game_state_step_pieces(game_state *gs)
 {
+  int i;
+  int cleared;
+
   gs->active = tetramino_copy(gs->next[0]);
 
   gs->at.x = 4;
   gs->at.y = 0;
 
-  for (int i = 0; i < NEXT_QUEUE_SIZE - 1; i++) {
+  for (i = 0; i < NEXT_QUEUE_SIZE - 1; i++) {
     gs->next[i] = gs->next[i + 1];
   }
   gs->next[NEXT_QUEUE_SIZE - 1] = new_random_tetramino();
 
   gs->has_held = false;
 
-  int cleared = field_cleanup(gs->field);
+  cleared = field_cleanup(gs->field);
   gs->score += calculate_score(cleared, gs->level);
   gs->total_cleared += cleared;
   gs->level = gs->total_cleared / 10;
+
+  return game_state_isgameover(gs) == COLLISION_TYPE_NONE;
 }
 
 void
@@ -81,16 +98,16 @@ game_state_try_swap(game_state *gs)
   }
   if (gs->holding.size == 0) {
     gs->holding = gs->active;
-    game_state_step_pieces(gs);
   } else {
-    tetramino_t tmp;
-    tmp         = gs->holding;
-    gs->holding = gs->active;
-    gs->active  = tmp;
+    tetramino_t tmp = gs->holding;
+    gs->holding     = gs->active;
+    gs->active      = tmp;
   }
   gs->at.x     = 4;
   gs->at.y     = 0;
   gs->has_held = true;
+
+  gs->game_over = game_state_step_pieces(gs);
 
   return false;
 }
@@ -158,9 +175,9 @@ void
 game_state_drop_piece(game_state *gs)
 {
   game_state_drop_tetramino(gs);
-  game_state_step_pieces(gs);
   gs->at.x = 4;
   gs->at.y = 0;
+  gs->game_over = game_state_step_pieces(gs);
 }
 
 bool
@@ -170,9 +187,9 @@ game_state_tick(game_state *gs, long dt)
   if (gs->last_tick > 1000000 / 30 * level_to_timesteps(gs->level)) {
     if (check_collision(gs->field, gs->active, TP(gs->at, 0, 1))) {
       place_piece(gs->field, gs->active, gs->at);
-      game_state_step_pieces(gs);
       gs->at.x = 4;
       gs->at.y = 0;
+      gs->game_over = game_state_step_pieces(gs);
     } else {
       gs->at.y++;
     }
@@ -186,17 +203,20 @@ game_state_tick(game_state *gs, long dt)
 static void
 draw_field(screen_t *s, rect_t bb, field_t *f)
 {
-  for (int i = 0; i < f->w; i++) {
-    for (int j = 0; j < f->h; j++) {
+  int i;
+  int j;
+  for (i = 0; i < f->w; i++) {
+    for (j = 0; j < f->h; j++) {
       const int v = f->data[j * f->w + i];
       if (v > 0) {
         const color_t color = tetramino_to_color(v);
-        const rect_t  rect  = (rect_t){
-              .x     = bb.x + i * 2 + 1,
-              .y     = bb.y + j + 1,
-              .w     = 2,
-              .h     = 1,
-              .color = color,
+        /* It's not ANSI, but at least it's const-correct... */
+        const rect_t rect = (rect_t){
+            .x     = bb.x + i * 2 + 1,
+            .y     = bb.y + j + 1,
+            .w     = 2,
+            .h     = 1,
+            .color = color,
         };
         if (v > 7) {
           screen_fill_rect(s, rect, TILESET_FULL_SHADOW1);
@@ -219,8 +239,10 @@ draw_field(screen_t *s, rect_t bb, field_t *f)
 static void
 draw_tetramino(screen_t *s, rect_t bb, tetramino_t t)
 {
-  for (int i = 0; i < t.size; i++) {
-    for (int j = 0; j < t.size; j++) {
+  int i;
+  int j;
+  for (i = 0; i < t.size; i++) {
+    for (j = 0; j < t.size; j++) {
       const int v = t.data[j * t.size + i];
       if (v > 0) {
         screen_fill_rect(s,
@@ -240,25 +262,31 @@ draw_tetramino(screen_t *s, rect_t bb, tetramino_t t)
 void
 game_state_draw_everything(game_state *gs, engine_t *e)
 {
-  point_t shadow_at = find_shadow(gs->field, gs->active, gs->at);
+  static const point_t at_stats = {2, 19};
+
+  char buf_score[128];
+  char buf_cleared[128];
+  char buf_level[128];
+  int  len_score;
+  int  len_cleared;
+  int  len_level;
+
+  point_t shadow_at;
+
+  int i;
+
+  shadow_at = find_shadow(gs->field, gs->active, gs->at);
   memset(gs->mask->data, 0, sizeof(int) * 150);
 
   place_shadow(gs->mask, gs->active, shadow_at);
   place_piece(gs->mask, gs->active, gs->at);
 
-  char buf_score[128];
-  int  len_score = snprintf(buf_score, 128, "Score: %d", gs->score);
-
-  char buf_cleared[128];
-  int  len_cleared = snprintf(buf_cleared, 128, "Cleared: %d", gs->total_cleared);
-
-  char buf_level[128];
-  int  len_level = snprintf(buf_level, 128, "Level: %d", gs->level);
+  len_score   = snprintf(buf_score, 128, "Score: %d", gs->score);
+  len_cleared = snprintf(buf_cleared, 128, "Cleared: %d", gs->total_cleared);
+  len_level   = snprintf(buf_level, 128, "Level: %d", gs->level);
 
   draw_field(e->screen, (rect_t){.x = 15, .y = 1}, gs->mask);
   draw_field(e->screen, (rect_t){.x = 15, .y = 1}, gs->field);
-
-  point_t at_stats = {2, 19};
 
   screen_draw_text(e->screen,
                    (rect_t){
@@ -350,37 +378,33 @@ game_state_draw_everything(game_state *gs, engine_t *e)
                    color_white);
 
   /* next tetraminos */
-  for (int i = 0; i < NEXT_QUEUE_SIZE; i++) {
+  for (i = 0; i < NEXT_QUEUE_SIZE; i++) {
     draw_tetramino(e->screen, (rect_t){.x = 40, .y = 2 + i * 4}, gs->next[i]);
   }
 }
 
+/**
+  \TODO Reduce code duplication.
+ */
 void
 game_state_draw_dont_compute(game_state *gs, engine_t *e)
 {
-  /*
-  point_t shadow_at = find_shadow(gs->field, gs->active, gs->at);
-  memset(gs->mask->data, 0, sizeof(int) * 150);
-
-  place_shadow(gs->mask, gs->active, shadow_at);
-  place_piece(gs->mask, gs->active, gs->at);
-
-
-  draw_field(e->screen, (rect_t){.x = 15, .y = 1}, gs->mask);
-  */
+  static const point_t at_stats = {2 + 60, 19}; /* position for stats screen */
 
   char buf_score[128];
-  int  len_score = snprintf(buf_score, 128, "Score: %d", gs->score);
-
   char buf_cleared[128];
-  int  len_cleared = snprintf(buf_cleared, 128, "Cleared: %d", gs->total_cleared);
-
   char buf_level[128];
-  int  len_level = snprintf(buf_level, 128, "Level: %d", gs->level);
+  int  len_score;
+  int  len_cleared;
+  int  len_level;
+
+  int i;
+
+  len_score   = snprintf(buf_score, 128, "Score: %d", gs->score);
+  len_cleared = snprintf(buf_cleared, 128, "Cleared: %d", gs->total_cleared);
+  len_level   = snprintf(buf_level, 128, "Level: %d", gs->level);
 
   draw_field(e->screen, (rect_t){.x = 75, .y = 1}, gs->field);
-
-  point_t at_stats = {2 + 60, 19};
 
   screen_draw_text(e->screen,
                    (rect_t){
@@ -446,9 +470,6 @@ game_state_draw_dont_compute(game_state *gs, engine_t *e)
                    strlen("Holding"),
                    color_white);
 
-  /* hold tetramino */
-  // draw_tetramino(e->screen, (rect_t){.x = 3, .y = 2}, gs->holding);
-
   /* next rect */
   screen_draw_rect(e->screen,
                    (rect_t){
@@ -472,15 +493,7 @@ game_state_draw_dont_compute(game_state *gs, engine_t *e)
                    color_white);
 
   /* next tetraminos */
-  // for (int i = 0; i < NEXT_QUEUE_SIZE; i++) {
-  //   draw_tetramino(e->screen, (rect_t){.x = 40, .y = 2 + i * 4}, gs->next[i]);
-  // }
-}
-
-void
-game_state_from_data(game_state *gs, int *data, int *ts)
-{
-  for (int i = 0; i < 150; i++) {
-    gs->field->data[i] = data[i];
+  for (i = 0; i < NEXT_QUEUE_SIZE; i++) {
+    draw_tetramino(e->screen, (rect_t){.x = 40 + 60, .y = 2 + i * 4}, gs->next[i]);
   }
 }

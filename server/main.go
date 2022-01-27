@@ -20,6 +20,7 @@ import (
 	"net"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -43,9 +44,24 @@ type userConn struct {
 	conn    net.Conn
 	scanner *bufio.Scanner
 	state   connState
-	user    string
-	field   []int
-	room    string
+
+	// Tetramino held
+	holding int
+	// Tetramino Queue
+	queue []int
+	// Field (15x10 only)
+	field []int
+
+	// User stats
+	score   int
+	cleared int
+	level   int
+
+	// Metadata
+	user string
+	room string
+
+	mu sync.Mutex
 }
 
 func (c *userConn) Write(s ...string) (int, error) {
@@ -60,6 +76,8 @@ var (
 	serverHello = []byte("100 xtetris server\r\n")
 	serverBye   = []byte("221 Bye\r\n")
 	serverOK    = []byte("250 OK\r\n")
+
+	serverUnknownError = []byte("599 Unknown Error\r\n")
 
 	serverCommandNotRecognized = []byte("500 NOT OK\r\n")
 	serverBadArguments         = []byte("501 NOT OK\r\n")
@@ -179,38 +197,66 @@ func handleLISTG(c *userConn, args []string) (err error) {
 	return nil
 }
 
+func readStats(state *userConn, args []string) {
+	i := 0
+
+	state.holding, _ = strconv.Atoi(args[0])
+	n, _ := strconv.Atoi(args[1])
+
+	temp_queue := make([]int, 0)
+	for ; i < n; i++ {
+		tmp, _ := strconv.Atoi(args[2+i])
+		temp_queue = append(temp_queue, tmp)
+	}
+	state.queue = temp_queue
+
+	state.score, _ = strconv.Atoi(args[2+i])
+	state.cleared, _ = strconv.Atoi(args[3+i])
+	state.level, _ = strconv.Atoi(args[4+i])
+
+	for ; i < len(args)-9; i++ {
+		n, _ := strconv.Atoi(args[8+i])
+		state.field[i] = n
+	}
+}
+
 // Set field state for player.
 func handleSETSTATE(c *userConn, args []string) (err error) {
-	if rooms[c.room].A == c {
-		for i := 0; i < 150; i++ {
-			n, _ := strconv.Atoi(args[i])
-			rooms[c.room].A.field[i] = n
-		}
-	} else if rooms[c.room].B == c {
-		for i := 0; i < 150; i++ {
-			n, _ := strconv.Atoi(args[i])
-			rooms[c.room].B.field[i] = n
-		}
+	fmt.Println(args)
+	if rooms[c.room].A == c || rooms[c.room].B == c {
+		readStats(c, args)
 	} else {
+		c.conn.Write(serverUnknownError)
 	}
 
 	c.conn.Write(serverSetStateSuccessful)
 	return nil
 }
 
+func sendStats(conn net.Conn, state *userConn) (int, error) {
+	//fmt.Println(state)
+	return conn.Write([]byte(fmt.Sprintf(
+		"%d %d %s %d %d %d %s\r\n",
+		state.holding,
+		len(state.queue),
+		strings.Trim(fmt.Sprint(state.queue), "[]"),
+		state.score,
+		state.cleared,
+		state.level,
+		strings.Trim(fmt.Sprint(state.field), "[]"),
+	)))
+}
+
 // Get field state for other player.
 func handleGETSTATE(c *userConn, args []string) (err error) {
 	if rooms[c.room] != nil {
+		// No ternary operator :(
 		if rooms[c.room].A == c {
-			str := fmt.Sprintf("%v", rooms[c.room].B.field)
-			bytes := []byte(str[1 : len(str)-1])
-			c.conn.Write(bytes)
-			c.conn.Write([]byte{'\r', '\n'})
+			sendStats(c.conn, rooms[c.room].B)
 		} else if rooms[c.room].B == c {
-			str := fmt.Sprintf("%v", rooms[c.room].A.field)
-			bytes := []byte(str[1 : len(str)-1])
-			c.conn.Write(bytes)
-			c.conn.Write([]byte{'\r', '\n'})
+			sendStats(c.conn, rooms[c.room].A)
+		} else {
+			c.conn.Write(serverUnknownError)
 		}
 	}
 	return nil
@@ -218,11 +264,19 @@ func handleGETSTATE(c *userConn, args []string) (err error) {
 
 func handleISREADY(c *userConn, args []string) (err error) {
 	if c.state == Playing {
-		c.conn.Write([]byte{'1'})
+		c.conn.Write([]byte{'1', '\r', '\n'})
 	} else {
-		c.conn.Write([]byte{'0'})
+		c.conn.Write([]byte{'0', '\r', '\n'})
 	}
-	c.conn.Write([]byte{'\r', '\n'})
+	return nil
+}
+
+func handleGAMEOVER(c *userConn, args []string) (err error) {
+	c.state = Authenticated
+	for i := 0; i < 150; i++ {
+		c.field[i] = 5
+	}
+	c.conn.Write(serverOK)
 	return nil
 }
 
@@ -236,6 +290,7 @@ var (
 	cmdSetState = "SETSTATE"
 	cmdGetState = "GETSTATE"
 	cmdIsReady  = "ISREADY"
+	cmdGameOver = "GAMEOVER"
 )
 
 type cmdRequirements struct {
@@ -253,6 +308,7 @@ var allowedCmd = map[string]cmdRequirements{
 	cmdSetState: {argc: ANY, states: []connState{Playing}},
 	cmdGetState: {argc: 0, states: []connState{Playing}},
 	cmdIsReady:  {argc: 0, states: []connState{Authenticated, Waiting, Playing}},
+	cmdGameOver: {argc: 0, states: []connState{Playing}},
 }
 
 var handlers = map[string]handlerFunc{
@@ -263,6 +319,7 @@ var handlers = map[string]handlerFunc{
 	cmdSetState: handleSETSTATE,
 	cmdGetState: handleGETSTATE,
 	cmdIsReady:  handleISREADY,
+	cmdGameOver: handleGAMEOVER,
 }
 
 func handleConnection(conn net.Conn) {
@@ -277,6 +334,7 @@ func handleConnection(conn net.Conn) {
 		conn:  conn,
 		state: NotAuthenticated,
 		field: make([]int, 150),
+		queue: make([]int, 3),
 	}
 
 	scanner := bufio.NewScanner(conn)
@@ -289,6 +347,10 @@ LOOP:
 			return
 		}
 		line := scanner.Text()
+
+		if _, ok := users[c.user]; !ok {
+			handleClose(&c)
+		}
 
 		parts := strings.Fields(string(line))
 		command := strings.ToUpper(parts[0])
@@ -328,17 +390,22 @@ LOOP:
 			continue LOOP
 		}
 
-		if err := handler(&c, args); err != nil {
-			log.Printf("[handle%v] %v\n", command, err)
-			return
+		c.mu.Lock()
+		if &c != nil {
+			if err := handler(&c, args); err != nil {
+				log.Printf("[handle%v] %v\n", command, err)
+				c.mu.Unlock()
+				return
+			}
 		}
+		c.mu.Unlock()
 	}
 	handleClose(&c)
 }
 
 func main() {
 	var port int
-	flag.IntVar(&port, "port", 3000, "listen port")
+	flag.IntVar(&port, "port", 5000, "listen port")
 	flag.Parse()
 
 	listener, err := net.Listen("tcp4", fmt.Sprintf("127.0.0.1:%d", port))

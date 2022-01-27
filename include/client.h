@@ -12,6 +12,7 @@
 #define CMD_GETSTATE "GETSTATE\r\n"
 #define CMD_SETSTATE "SETSTATE"
 #define CMD_ISREADY  "ISREADY\r\n"
+#define CMD_GAMEOVER "GAMEOVER\r\n"
 
 #define CODE_AUTHENTICATION_SUCCESFULL 235
 #define CODE_JOIN_SUCCESFULL           236
@@ -90,8 +91,12 @@ typedef struct {
 */
 typedef struct {
   int field[150];
-  /* [holding, queued 1, queued 2, queued 3, ...] */
-  int tetraminos[1 + NEXT_QUEUE_SIZE];
+  /* [queued 1, queued 2, queued 3, ...] */
+  int tetraminos[NEXT_QUEUE_SIZE];
+  int holding;
+  int score;
+  int cleared;
+  int level;
 } getstate_t;
 
 /** \todo Move to libdz. */
@@ -153,11 +158,24 @@ void tetris_client_getstate(client_t *c, getstate_t *out);
   \param ts Tetramino queue.
   \param ts_len Length of tetramino queue.
   */
-bool tetris_client_setstate(client_t *c, int *data_f, int *data_m, int h, int *ts, int ts_len);
+bool tetris_client_setstate(client_t    *c,
+                            int         *data_f,
+                            int         *data_m,
+                            tetramino_t  h,
+                            tetramino_t *ts,
+                            int          ts_len,
+                            int          score,
+                            int          cleared,
+                            int          level);
 
 /**
   \brief Check if player is ready to start a multiplayer match.
  */
 bool tetris_client_isready(client_t *c);
+
+/**
+  \brief Send game over notification to other player.
+ */
+bool tetris_client_sendgameover(client_t *c);
 
 #endif /* __CLIENT_H__ */

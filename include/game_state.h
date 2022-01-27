@@ -9,6 +9,7 @@
 
 #include "field.h"
 #include "tetramino.h"
+#include "client.h"
 
 typedef struct {
   point_t at;
@@ -17,6 +18,8 @@ typedef struct {
   field_t *mask;
 
   tetramino_t active;
+
+  // TODO (optimization) Should probably keep track of the holding and queued tetraminos by their index.
   tetramino_t next[NEXT_QUEUE_SIZE];
   tetramino_t holding;
 
@@ -26,6 +29,8 @@ typedef struct {
   int  score;
 
   long last_tick;
+
+  bool game_over;
 } game_state;
 
 game_state *game_state_new();
@@ -34,7 +39,7 @@ void        game_state_free(game_state *gs);
 /**
   \brief Pop tetramino from queue and set it as the active one.
  */
-void game_state_step_pieces(game_state *gs);
+bool game_state_step_pieces(game_state *gs);
 
 /**
   \brief Move tetramino to the bottom of the field.
@@ -62,7 +67,5 @@ bool game_state_tick(game_state *gs, long dt);
 void game_state_draw_everything(game_state *gs, engine_t *e);
 
 void game_state_draw_dont_compute(game_state *gs, engine_t *e);
-
-void game_state_from_data(game_state *gs, int *field, int *ts);
 
 #endif /* __GAME_STATE_H__ */

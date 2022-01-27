@@ -1,3 +1,5 @@
+/** A `dangling-pointer` fuck-fest. This entire file seems sketchy, but works fine. */
+
 #include "tetramino.h"
 
 #include <stdlib.h>
@@ -10,7 +12,7 @@ int TETRAMINO5[] = {5, 5, 0, 0, 5, 5, 0, 0, 0};
 int TETRAMINO6[] = {6, 0, 0, 6, 6, 6, 0, 0, 0};
 int TETRAMINO7[] = {0, 0, 7, 7, 7, 7, 0, 0, 0};
 
-const tetramino_t tetraminos[] = {
+const tetramino_t tetraminos[7] = {
     {TETRAMINO1, 4},
     {TETRAMINO2, 2},
     {TETRAMINO3, 3},
